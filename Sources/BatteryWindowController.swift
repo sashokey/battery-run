@@ -1,0 +1,63 @@
+import AppKit
+import Combine
+
+@MainActor
+final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
+    let dashboard = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
+    let monitor: BatteryMonitor
+    private var observation: AnyCancellable?
+    private let refreshIdentifier = NSToolbarItem.Identifier("RefreshBattery")
+
+    init(monitor: BatteryMonitor) {
+        self.monitor = monitor
+        let openingSize = dashboard.frame.size
+        let window = NSWindow(contentRect: dashboard.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        super.init(window: window)
+        window.title = "Battery Run"
+        window.contentView = dashboard
+        window.contentMinSize = NSSize(width: 460, height: 590)
+        window.isReleasedWhenClosed = false
+        window.toolbarStyle = .unifiedCompact
+        let toolbar = NSToolbar(identifier: "BatteryToolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.setFrame(NSRect(origin: window.frame.origin, size: openingSize), display: false)
+        window.center()
+        observation = monitor.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor [weak self] in self?.render() }
+        }
+        render()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    @objc func refreshBatteryData(_ sender: Any?) {
+        monitor.refresh()
+        render()
+        monitor.recoverHistory()
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, refreshIdentifier]
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, refreshIdentifier]
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        guard identifier == refreshIdentifier else { return nil }
+        let item = NSToolbarItem(itemIdentifier: identifier)
+        item.label = "Refresh Battery Data"
+        item.toolTip = "Refresh battery data"
+        item.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Refresh Battery Data")
+        item.target = self
+        item.action = #selector(refreshBatteryData(_:))
+        return item
+    }
+
+    private func render() {
+        dashboard.update(model: DashboardModel(sample: monitor.sample, session: monitor.tracker.session), notice: monitor.notice, isReadingHistory: monitor.isReadingHistory)
+    }
+}
