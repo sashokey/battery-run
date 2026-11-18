@@ -11,6 +11,7 @@ final class AppKitDashboard: NSView {
     private let startLabel = NSTextField(labelWithString: "Discharge started")
     private let startValue = NSTextField(labelWithString: "—")
     private let startCharge = NSTextField(labelWithString: "—")
+    private let forecastStartCharge = NSTextField(labelWithString: "—")
     private let elapsed = NSTextField(labelWithString: "—")
     private let used = NSTextField(labelWithString: "—")
     private let rate = NSTextField(labelWithString: "—")
@@ -45,6 +46,7 @@ final class AppKitDashboard: NSView {
         startLabel.stringValue = model.startLabel
         startValue.stringValue = model.startValue
         startCharge.stringValue = model.startCharge
+        forecastStartCharge.stringValue = model.forecastStartCharge
         elapsed.stringValue = model.elapsed
         used.stringValue = model.chargeUsed
         rate.stringValue = model.rate
@@ -116,8 +118,15 @@ final class AppKitDashboard: NSView {
 
         let sessionTitle = NSTextField(labelWithString: "Current Session")
         sessionTitle.font = .systemFont(ofSize: 12, weight: .medium)
-        let labels = [startLabel, NSTextField(labelWithString: "Starting charge"), NSTextField(labelWithString: "Elapsed"), NSTextField(labelWithString: "Charge used"), NSTextField(labelWithString: "Average drain")]
-        let values = [startValue, startCharge, elapsed, used, rate]
+        let labels = [
+            startLabel,
+            NSTextField(labelWithString: "Starting charge"),
+            NSTextField(labelWithString: "Charge at forecast start"),
+            NSTextField(labelWithString: "Elapsed"),
+            NSTextField(labelWithString: "Charge used"),
+            NSTextField(labelWithString: "Average drain")
+        ]
+        let values = [startValue, startCharge, forecastStartCharge, elapsed, used, rate]
         let grid = NSGridView(views: zip(labels, values).map { [$0.0, $0.1] })
         grid.rowSpacing = 14
         grid.columnSpacing = 24

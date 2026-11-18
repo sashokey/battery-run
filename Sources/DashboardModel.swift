@@ -22,6 +22,10 @@ struct DashboardModel {
         DurationText.string(sample.flatMap { current in activeSession.map { current.date.timeIntervalSince($0.start.date) } })
     }
     var startCharge: String { activeSession.map { Self.percent($0.start.percent) } ?? "—" }
+    var forecastStartCharge: String {
+        guard activeSession != nil, let forecastStart else { return "—" }
+        return Self.percent(forecastStart.percent)
+    }
     var chargeUsed: String {
         guard let activeSession, let sample else { return "—" }
         return Self.percent(max(0, activeSession.start.percent - sample.percent))
