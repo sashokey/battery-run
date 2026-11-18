@@ -12,7 +12,7 @@ let appKitTests = [
         try MainActor.assumeIsolated {
             let view = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
             let start = BatterySample(date: Date(timeIntervalSince1970: 1704110400), percent: 80, onBattery: true)
-            view.update(model: DashboardModel(sample: historyCurrent(), session: DischargeSession(start: start, origin: .history)), notice: nil, isReadingHistory: false)
+            view.update(model: DashboardModel(sample: historyCurrent(), session: DischargeSession(start: start, origin: .history), forecastStart: start), notice: nil, isReadingHistory: false)
             let values = visibleText(in: view)
             for expected in ["60%", "On Battery", "3h 0m", "5h 0m", "80%", "1h 0m", "20%", "20%/h"] {
                 try expect(values.contains(expected), "native window must display \(expected)")
@@ -25,8 +25,8 @@ let appKitTests = [
             let view = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
             let start = BatterySample(date: Date(timeIntervalSince1970: 1704110400), percent: 80, onBattery: true)
             let session = DischargeSession(start: start, origin: .history)
-            view.update(model: DashboardModel(sample: historyCurrent(), session: session), notice: nil, isReadingHistory: false)
-            view.update(model: DashboardModel(sample: historyCurrent(60, onBattery: false), session: session), notice: nil, isReadingHistory: false)
+            view.update(model: DashboardModel(sample: historyCurrent(), session: session, forecastStart: start), notice: nil, isReadingHistory: false)
+            view.update(model: DashboardModel(sample: historyCurrent(60, onBattery: false), session: session, forecastStart: start), notice: nil, isReadingHistory: false)
             let values = visibleText(in: view)
             try expect(values.contains("External Power"), "source change must be reflected in the native window")
             try expect(!values.contains("3h 0m"), "previous remaining time must be removed")
@@ -36,8 +36,8 @@ let appKitTests = [
     TestCase(name: "AppKit unavailable state hides old charge and presents the data error") {
         try MainActor.assumeIsolated {
             let view = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
-            view.update(model: DashboardModel(sample: historyCurrent(), session: nil), notice: nil, isReadingHistory: false)
-            view.update(model: DashboardModel(sample: nil, session: nil), notice: nil, isReadingHistory: false)
+            view.update(model: DashboardModel(sample: historyCurrent(), session: nil, forecastStart: nil), notice: nil, isReadingHistory: false)
+            view.update(model: DashboardModel(sample: nil, session: nil, forecastStart: nil), notice: nil, isReadingHistory: false)
             let values = visibleText(in: view)
             try expect(values.contains("Battery Unavailable"), "unavailable data must have a clear state")
             try expect(!values.contains("60%"), "stale charge must not remain visible")
@@ -46,7 +46,7 @@ let appKitTests = [
     TestCase(name: "AppKit presents persistence errors and history progress") {
         try MainActor.assumeIsolated {
             let view = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
-            view.update(model: DashboardModel(sample: historyCurrent(), session: nil), notice: "Session storage failed", isReadingHistory: true)
+            view.update(model: DashboardModel(sample: historyCurrent(), session: nil, forecastStart: nil), notice: "Session storage failed", isReadingHistory: true)
             let values = visibleText(in: view)
             try expect(values.contains("Session storage failed"), "the native view must surface storage errors")
             try expect(values.contains("Reading power history…"), "history progress must be visible")

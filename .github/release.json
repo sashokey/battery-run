@@ -1,6 +1,6 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "draft": false,
   "prerelease": false,
-  "notes": "First GitHub release.\n\n- Shows current charge, discharge start, estimated time remaining and estimated runtime from a full charge.\n- Native AppKit interface with session recovery from macOS power history.\n- App Sandbox with read-only access to the power-management log directory.\n\nRequires macOS 27 and Apple silicon. The app is ad-hoc signed and is not notarized."
+  "notes": "Remaining time and runtime from 100% now use the average drain since the latest wake or switch to battery power, whichever came later. Both estimates appear after at least one minute and one percentage point of discharge.\n\nRequires macOS 27 and Apple silicon. The app is ad-hoc signed and is not notarized."
 }

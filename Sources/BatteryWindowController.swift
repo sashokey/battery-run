@@ -58,6 +58,7 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
     }
 
     private func render() {
-        dashboard.update(model: DashboardModel(sample: monitor.sample, session: monitor.tracker.session), notice: monitor.notice, isReadingHistory: monitor.isReadingHistory)
+        let model = DashboardModel(sample: monitor.sample, session: monitor.tracker.session, forecastStart: monitor.tracker.forecastStart)
+        dashboard.update(model: model, notice: monitor.notice, isReadingHistory: monitor.isReadingHistory)
     }
 }

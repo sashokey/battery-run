@@ -3,9 +3,13 @@ import Foundation
 struct DashboardModel {
     let sample: BatterySample?
     let session: DischargeSession?
+    let forecastStart: BatterySample?
 
     var activeSession: DischargeSession? { sample?.onBattery == true ? session : nil }
-    var estimate: DischargeEstimate? { sample.flatMap { activeSession?.estimate(at: $0) } }
+    var estimate: DischargeEstimate? {
+        guard let sample, let forecastStart else { return nil }
+        return activeSession?.estimate(at: sample, since: forecastStart)
+    }
     var remaining: String { DurationText.string(estimate?.remaining) }
     var fullDuration: String { DurationText.string(estimate?.fullDuration) }
     var startLabel: String { activeSession?.origin == .monitoring ? "Monitoring since" : "Discharge started" }
@@ -27,12 +31,12 @@ struct DashboardModel {
         guard let sample else { return "Battery data is temporarily unavailable." }
         guard sample.onBattery else { return "The Mac is using external power. A new session starts when it switches to battery." }
         if estimate == nil { return "Collecting data. An estimate needs at least 1% of charge used and 1 minute of observation." }
-        return "Based on the average drain since this session began, including sleep. The estimate changes with your workload."
+        return "Based on the average drain since the last wake or switch to battery power, whichever came later."
     }
     var originNote: String? {
         switch activeSession?.origin {
         case .history: "Start reconstructed from the first available battery entry. Discharge may have started earlier."
-        case .monitoring: "The unplug time is unknown. Calculations use measurements since monitoring began."
+        case .monitoring: "The unplug time is unknown. Session totals use measurements since monitoring began."
         default: nil
         }
     }

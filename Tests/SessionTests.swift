@@ -38,7 +38,7 @@ let sessionTests = [
         let current = BatterySample(date: Date(timeIntervalSince1970: 4600), percent: 79.5, onBattery: true)
         try expect(DischargeSession(start: start, origin: .observed).estimate(at: current) == nil, "at least one percentage point is needed")
     },
-    TestCase(name: "sleep remains part of the session average") {
+    TestCase(name: "discharge extrapolates the interval between the supplied readings") {
         let start = BatterySample(date: Date(timeIntervalSince1970: 1000), percent: 100, onBattery: true)
         let current = BatterySample(date: Date(timeIntervalSince1970: 29800), percent: 80, onBattery: true)
         let estimate = DischargeSession(start: start, origin: .history).estimate(at: current)

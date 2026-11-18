@@ -70,10 +70,11 @@ final class BatteryMonitor: ObservableObject {
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.isSleeping = false
-                self?.tracker.markObservationGap()
-                self?.refresh()
-                self?.recoverHistory()
+                guard let self else { return }
+                self.isSleeping = false
+                self.tracker.markWake()
+                self.refresh()
+                self.recoverHistory()
             }
         }
         recoverHistory()
@@ -83,13 +84,13 @@ final class BatteryMonitor: ObservableObject {
         guard !isSleeping, !isReadingHistory, sample?.onBattery == true else { return }
         isReadingHistory = true
         Task { [weak self] in
-            let records = await Task.detached(priority: .utility) {
-                PowerHistoryLoader.run().map { PowerHistory.samples(from: $0, before: Date()) }
+            let history = await Task.detached(priority: .utility) {
+                PowerHistoryLoader.run().map { PowerHistory(from: $0, before: Date()) }
             }.value
             guard let self else { return }
             self.refresh()
-            if !self.isSleeping, let records, let current = self.sample {
-                self.tracker.reconcile(samples: records, current: current)
+            if !self.isSleeping, let history, let current = self.sample {
+                self.tracker.reconcile(history: history, current: current)
                 self.persist()
             }
             self.isReadingHistory = false

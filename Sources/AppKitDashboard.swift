@@ -167,7 +167,7 @@ final class AppKitDashboard: NSView {
             emptyContent.trailingAnchor.constraint(equalTo: unavailable.trailingAnchor),
             emptyContent.centerYAnchor.constraint(equalTo: unavailable.centerYAnchor)
         ])
-        update(model: DashboardModel(sample: nil, session: nil), notice: nil, isReadingHistory: false)
+        update(model: DashboardModel(sample: nil, session: nil, forecastStart: nil), notice: nil, isReadingHistory: false)
     }
 
     private func estimateColumn(_ title: String, value: NSTextField) -> NSView {
