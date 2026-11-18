@@ -3,34 +3,48 @@ import Combine
 
 @MainActor
 final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
-    let dashboard = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
+    let dashboard: AppKitDashboard
     let monitor: BatteryMonitor
     private var observation: AnyCancellable?
     private let refreshIdentifier = NSToolbarItem.Identifier("RefreshBattery")
 
     init(monitor: BatteryMonitor) {
         self.monitor = monitor
-        let openingSize = dashboard.frame.size
+        let minimumSize = NSSize(width: 460, height: 590)
+        dashboard = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: minimumSize.height))
         let window = NSWindow(contentRect: dashboard.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init(window: window)
         window.title = "Battery Run"
         window.contentView = dashboard
-        window.contentMinSize = NSSize(width: 460, height: 590)
+        window.contentMinSize = minimumSize
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .unifiedCompact
         let toolbar = NSToolbar(identifier: "BatteryToolbar")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
-        window.setFrame(NSRect(origin: window.frame.origin, size: openingSize), display: false)
-        window.center()
         observation = monitor.objectWillChange.sink { [weak self] _ in
             Task { @MainActor [weak self] in self?.render() }
         }
         render()
+        fitOpeningHeight(of: window)
     }
 
     required init?(coder: NSCoder) { nil }
+
+    private func fitOpeningHeight(of window: NSWindow) {
+        let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
+        let maximumHeight = visibleFrame.map { max(0, window.contentRect(forFrameRect: $0).height) } ?? .infinity
+        window.contentMinSize.height = min(window.contentMinSize.height, maximumHeight)
+        let requiredHeight = max(ceil(dashboard.requiredContentHeight), window.contentMinSize.height)
+        window.setContentSize(NSSize(width: dashboard.bounds.width, height: min(requiredHeight, maximumHeight)))
+        if let visibleFrame {
+            let size = window.frame.size
+            window.setFrameOrigin(NSPoint(x: visibleFrame.midX - size.width / 2, y: visibleFrame.midY - size.height / 2))
+        } else {
+            window.center()
+        }
+    }
 
     @objc func refreshBatteryData(_ sender: Any?) {
         monitor.refresh()

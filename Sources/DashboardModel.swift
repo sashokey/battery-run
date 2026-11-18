@@ -19,12 +19,11 @@ struct DashboardModel {
         let date = Self.formatStartTime(activeSession.start.date)
         return activeSession.origin == .history ? "≈ \(date)" : date
     }
-    var elapsed: String {
-        DurationText.string(sample.flatMap { current in activeSession.map { current.date.timeIntervalSince($0.start.date) } })
-    }
+    var elapsed: String { elapsed(since: activeSession?.start) }
     var startCharge: String { activeSession.map { Self.percent($0.start.percent) } ?? "—" }
     var forecastStartCharge: String { activeForecastStart.map { Self.percent($0.percent) } ?? "—" }
     var forecastStartTime: String { activeForecastStart.map { Self.formatStartTime($0.date) } ?? "—" }
+    var forecastElapsed: String { elapsed(since: activeForecastStart) }
     var chargeUsed: String {
         guard let activeSession, let sample else { return "—" }
         return Self.percent(max(0, activeSession.start.percent - sample.percent))
@@ -46,6 +45,12 @@ struct DashboardModel {
     static func percent(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0))) + "%"
     }
+
+    private func elapsed(since start: BatterySample?) -> String {
+        guard let sample, let start else { return "—" }
+        return DurationText.string(sample.date.timeIntervalSince(start.date))
+    }
+
     private static func formatStartTime(_ date: Date) -> String {
         date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }

@@ -1,6 +1,6 @@
 {
-  "version": "1.4",
+  "version": "1.5",
   "draft": false,
   "prerelease": false,
-  "notes": "Current Session now shows Forecast start time alongside Charge at forecast start, so you can see the date and time used for both runtime estimates.\n\nRequires macOS 27 and Apple silicon. The app is ad-hoc signed and is not notarized."
+  "notes": "Current Session now groups Discharge and Forecast details, with an elapsed time for each. The window opens at a height that fits its contents within the available screen space.\n\nRequires macOS 27 and Apple silicon. The app is ad-hoc signed and is not notarized."
 }

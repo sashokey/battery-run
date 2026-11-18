@@ -14,6 +14,7 @@ final class AppKitDashboard: NSView {
     private let forecastStartCharge = NSTextField(labelWithString: "—")
     private let forecastStartTime = NSTextField(labelWithString: "—")
     private let elapsed = NSTextField(labelWithString: "—")
+    private let forecastElapsed = NSTextField(labelWithString: "—")
     private let used = NSTextField(labelWithString: "—")
     private let rate = NSTextField(labelWithString: "—")
     private let explanation = NSTextField(wrappingLabelWithString: "")
@@ -23,6 +24,7 @@ final class AppKitDashboard: NSView {
     private let progressRow = NSStackView()
     private let available = NSStackView()
     private let unavailable = NSView()
+    private let scroll = NSScrollView()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -30,6 +32,11 @@ final class AppKitDashboard: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    var requiredContentHeight: CGFloat {
+        layoutSubtreeIfNeeded()
+        return scroll.documentView?.bounds.height ?? 0
+    }
 
     func update(model: DashboardModel, notice: String?, isReadingHistory: Bool) {
         available.isHidden = model.sample == nil
@@ -50,6 +57,7 @@ final class AppKitDashboard: NSView {
         forecastStartCharge.stringValue = model.forecastStartCharge
         forecastStartTime.stringValue = model.forecastStartTime
         elapsed.stringValue = model.elapsed
+        forecastElapsed.stringValue = model.forecastElapsed
         used.stringValue = model.chargeUsed
         rate.stringValue = model.rate
         explanation.stringValue = model.explanation
@@ -63,7 +71,6 @@ final class AppKitDashboard: NSView {
     }
 
     private func configure() {
-        let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -120,28 +127,23 @@ final class AppKitDashboard: NSView {
 
         let sessionTitle = NSTextField(labelWithString: "Current Session")
         sessionTitle.font = .systemFont(ofSize: 12, weight: .medium)
-        let labels = [
-            startLabel,
-            NSTextField(labelWithString: "Starting charge"),
-            NSTextField(labelWithString: "Charge at forecast start"),
-            NSTextField(labelWithString: "Forecast start time"),
-            NSTextField(labelWithString: "Elapsed"),
-            NSTextField(labelWithString: "Charge used"),
-            NSTextField(labelWithString: "Average drain")
-        ]
-        let values = [startValue, startCharge, forecastStartCharge, forecastStartTime, elapsed, used, rate]
-        let grid = NSGridView(views: zip(labels, values).map { [$0.0, $0.1] })
-        grid.rowSpacing = 14
-        grid.columnSpacing = 24
-        grid.column(at: 0).xPlacement = .leading
-        grid.column(at: 1).xPlacement = .trailing
-        for label in labels { label.textColor = .secondaryLabelColor }
-        for value in values {
-            value.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
-            value.isSelectable = true
-        }
+        let details = verticalStack(spacing: 16)
+        let discharge = sessionSection("Discharge", rows: [
+            (startLabel, startValue),
+            (NSTextField(labelWithString: "Starting charge"), startCharge),
+            (NSTextField(labelWithString: "Discharge elapsed"), elapsed),
+            (NSTextField(labelWithString: "Charge used"), used)
+        ])
+        let forecast = sessionSection("Forecast", rows: [
+            (NSTextField(labelWithString: "Forecast start time"), forecastStartTime),
+            (NSTextField(labelWithString: "Charge at forecast start"), forecastStartCharge),
+            (NSTextField(labelWithString: "Forecast elapsed"), forecastElapsed),
+            (NSTextField(labelWithString: "Average drain"), rate)
+        ])
+        addFullWidth(discharge, to: details)
+        addFullWidth(forecast, to: details)
         let session = verticalStack(spacing: 8, views: [sessionTitle])
-        addFullWidth(card(containing: grid), to: session)
+        addFullWidth(card(containing: details), to: session)
         addFullWidth(session, to: available)
 
         let footer = verticalStack(spacing: 8)
@@ -180,6 +182,24 @@ final class AppKitDashboard: NSView {
             emptyContent.centerYAnchor.constraint(equalTo: unavailable.centerYAnchor)
         ])
         update(model: DashboardModel(sample: nil, session: nil, forecastStart: nil), notice: nil, isReadingHistory: false)
+    }
+
+    private func sessionSection(_ title: String, rows: [(label: NSTextField, value: NSTextField)]) -> NSStackView {
+        let heading = NSTextField(labelWithString: title)
+        heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        let grid = NSGridView(views: rows.map { [$0.label, $0.value] })
+        grid.rowSpacing = 14
+        grid.columnSpacing = 24
+        grid.column(at: 0).xPlacement = .leading
+        grid.column(at: 1).xPlacement = .trailing
+        for (label, value) in rows {
+            label.textColor = .secondaryLabelColor
+            value.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+            value.isSelectable = true
+        }
+        let section = verticalStack(spacing: 8, views: [heading])
+        addFullWidth(grid, to: section)
+        return section
     }
 
     private func estimateColumn(_ title: String, value: NSTextField) -> NSView {

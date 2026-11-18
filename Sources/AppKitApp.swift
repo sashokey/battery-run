@@ -29,11 +29,12 @@ final class AppKitApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let controller = BatteryWindowController(monitor: BatteryMonitor())
+        let monitor = BatteryMonitor()
+        monitor.start()
+        let controller = BatteryWindowController(monitor: monitor)
         self.controller = controller
         configureMenu(target: controller)
         controller.showWindow(nil)
-        controller.monitor.start()
         NSApp.activate()
     }
 

@@ -20,8 +20,9 @@ let appKitTests = [
             try expect(values.contains { $0.hasPrefix("≈") }, "historical uncertainty must remain visible")
         }
     },
-    TestCase(name: "AppKit shows the forecast starting charge and time during a battery session") {
+    TestCase(name: "AppKit groups session values by the timestamp used for each elapsed time") {
         try MainActor.assumeIsolated {
+            @MainActor
             func sessionValue(_ label: String, in view: NSView) -> String? {
                 if let grid = view as? NSGridView {
                     let row = (0..<grid.numberOfRows).first {
@@ -44,14 +45,34 @@ let appKitTests = [
             try expect(sessionValue("Forecast start time", in: view) == wakeTime, "the forecast time must show the wake reading's timestamp")
             try expect(sessionValue("Discharge started", in: view) == unplugTime, "the session start must show the unplug time")
             try expect(sessionValue("Starting charge", in: view) == "90%", "the starting charge row must show the charge at unplugging")
+            try expect(sessionValue("Discharge elapsed", in: view) == "2h 0m", "the discharge duration must start at unplugging")
+            try expect(sessionValue("Forecast elapsed", in: view) == "30m", "the forecast duration must start at wake")
+
+            @MainActor
+            func sectionRowLabels(in parent: NSView) -> [String: [String]] {
+                if let stack = parent as? NSStackView,
+                   let title = stack.arrangedSubviews.first as? NSTextField,
+                   let grid = stack.arrangedSubviews.last as? NSGridView {
+                    let labels = (0..<grid.numberOfRows).compactMap {
+                        (grid.cell(atColumnIndex: 0, rowIndex: $0).contentView as? NSTextField)?.stringValue
+                    }
+                    return [title.stringValue: labels]
+                }
+                return parent.subviews.reduce(into: [:]) { $0.merge(sectionRowLabels(in: $1)) { existing, _ in existing } }
+            }
+            let sections = sectionRowLabels(in: view)
+            try expect(sections["Discharge"] == ["Discharge started", "Starting charge", "Discharge elapsed", "Charge used"], "the discharge group must contain its own four rows in order")
+            try expect(sections["Forecast"] == ["Forecast start time", "Charge at forecast start", "Forecast elapsed", "Average drain"], "the forecast group must contain its own four rows in order")
 
             view.update(model: DashboardModel(sample: historyCurrent(70, onBattery: false), session: session, forecastStart: wake), notice: nil, isReadingHistory: false)
             try expect(sessionValue("Charge at forecast start", in: view) == "—", "the forecast baseline must clear on external power")
             try expect(sessionValue("Forecast start time", in: view) == "—", "the forecast time must clear on external power")
+            try expect(sessionValue("Forecast elapsed", in: view) == "—", "the forecast duration must clear on external power")
 
             view.update(model: DashboardModel(sample: current, session: session, forecastStart: nil), notice: nil, isReadingHistory: false)
             try expect(sessionValue("Charge at forecast start", in: view) == "—", "an unknown forecast baseline must display as unavailable")
             try expect(sessionValue("Forecast start time", in: view) == "—", "an unknown forecast time must display as unavailable")
+            try expect(sessionValue("Forecast elapsed", in: view) == "—", "an unknown forecast duration must display as unavailable")
         }
     },
     TestCase(name: "AppKit clears stale forecasts when power switches to AC") {
@@ -112,12 +133,39 @@ let appKitTests = [
             try expect(visibleText(in: controller.dashboard).contains(expected), "published battery changes must update the native window automatically")
         }
     },
-    TestCase(name: "AppKit opens at 520 by 650 points including the toolbar") {
+    TestCase(name: "AppKit fits the opening window to the historical session and available screen height") {
         try MainActor.assumeIsolated {
-            let monitor = BatteryMonitor(stateURL: URL(fileURLWithPath: ".build/window-size-\(UUID().uuidString).json"))
+            let url = URL(fileURLWithPath: ".build/window-size-\(UUID().uuidString).json")
+            let current = historyCurrent(70)
+            let start = BatterySample(date: current.date.addingTimeInterval(-7200), percent: 90, onBattery: true)
+            let history = DischargeSession(start: start, origin: .history)
+            try SessionStore.save(SessionTracker(session: history, lastSample: start), to: url)
+            let monitor = BatteryMonitor(stateURL: url, readSample: { current })
+            monitor.refresh()
             let controller = BatteryWindowController(monitor: monitor)
-            try expectNear(controller.window.map { Double($0.frame.width) }, 520, "opening width must match the intended size")
-            try expectNear(controller.window.map { Double($0.frame.height) }, 650, "the toolbar must be included in the intended opening height")
+            guard let window = controller.window,
+                  let scroll = controller.dashboard.subviews.compactMap({ $0 as? NSScrollView }).first,
+                  let document = scroll.documentView else {
+                throw TestFailure.failed("the window must present a scrollable dashboard")
+            }
+            controller.dashboard.layoutSubtreeIfNeeded()
+            try expectNear(Double(window.frame.width), 520, "opening width must match the intended size")
+            let visibleHeight = scroll.contentView.bounds.height
+            let requiredHeight = document.bounds.height
+            let chromeHeight = window.frame.height - visibleHeight
+            let screen = (window.screen ?? NSScreen.main)?.visibleFrame
+            if let screen {
+                try expect(window.frame.minY >= screen.minY && window.frame.maxY <= screen.maxY, "the opening window must stay in the visible area")
+                if window.frame.width <= screen.width {
+                    try expect(window.frame.minX >= screen.minX && window.frame.maxX <= screen.maxX, "the window must stay within its selected screen")
+                }
+            }
+            let unconstrainedHeight = ceil(requiredHeight) + chromeHeight
+            if unconstrainedHeight <= (screen?.height ?? .infinity) {
+                try expectNear(Double(visibleHeight), Double(ceil(requiredHeight)), "the historical session must fit without scrolling")
+            } else {
+                try expectNear(Double(window.frame.height), screen.map { Double($0.height) } ?? 0, "the window must fit the available height on a shorter screen")
+            }
         }
     }
 ]
