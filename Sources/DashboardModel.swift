@@ -6,6 +6,7 @@ struct DashboardModel {
     let forecastStart: BatterySample?
 
     var activeSession: DischargeSession? { sample?.onBattery == true ? session : nil }
+    private var activeForecastStart: BatterySample? { activeSession == nil ? nil : forecastStart }
     var estimate: DischargeEstimate? {
         guard let sample, let forecastStart else { return nil }
         return activeSession?.estimate(at: sample, since: forecastStart)
@@ -15,17 +16,15 @@ struct DashboardModel {
     var startLabel: String { activeSession?.origin == .monitoring ? "Monitoring since" : "Discharge started" }
     var startValue: String {
         guard let activeSession else { return "—" }
-        let date = activeSession.start.date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+        let date = Self.formatStartTime(activeSession.start.date)
         return activeSession.origin == .history ? "≈ \(date)" : date
     }
     var elapsed: String {
         DurationText.string(sample.flatMap { current in activeSession.map { current.date.timeIntervalSince($0.start.date) } })
     }
     var startCharge: String { activeSession.map { Self.percent($0.start.percent) } ?? "—" }
-    var forecastStartCharge: String {
-        guard activeSession != nil, let forecastStart else { return "—" }
-        return Self.percent(forecastStart.percent)
-    }
+    var forecastStartCharge: String { activeForecastStart.map { Self.percent($0.percent) } ?? "—" }
+    var forecastStartTime: String { activeForecastStart.map { Self.formatStartTime($0.date) } ?? "—" }
     var chargeUsed: String {
         guard let activeSession, let sample else { return "—" }
         return Self.percent(max(0, activeSession.start.percent - sample.percent))
@@ -46,5 +45,8 @@ struct DashboardModel {
     }
     static func percent(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0))) + "%"
+    }
+    private static func formatStartTime(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
     }
 }

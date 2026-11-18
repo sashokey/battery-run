@@ -20,7 +20,7 @@ let appKitTests = [
             try expect(values.contains { $0.hasPrefix("≈") }, "historical uncertainty must remain visible")
         }
     },
-    TestCase(name: "AppKit shows the forecast starting charge during a battery session") {
+    TestCase(name: "AppKit shows the forecast starting charge and time during a battery session") {
         try MainActor.assumeIsolated {
             func sessionValue(_ label: String, in view: NSView) -> String? {
                 if let grid = view as? NSGridView {
@@ -39,13 +39,19 @@ let appKitTests = [
             let session = DischargeSession(start: start, origin: .observed)
             view.update(model: DashboardModel(sample: current, session: session, forecastStart: wake), notice: nil, isReadingHistory: false)
             try expect(sessionValue("Charge at forecast start", in: view) == "75%", "the forecast row must show the charge at wake")
+            let wakeTime = wake.date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+            let unplugTime = start.date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+            try expect(sessionValue("Forecast start time", in: view) == wakeTime, "the forecast time must show the wake reading's timestamp")
+            try expect(sessionValue("Discharge started", in: view) == unplugTime, "the session start must show the unplug time")
             try expect(sessionValue("Starting charge", in: view) == "90%", "the starting charge row must show the charge at unplugging")
 
             view.update(model: DashboardModel(sample: historyCurrent(70, onBattery: false), session: session, forecastStart: wake), notice: nil, isReadingHistory: false)
             try expect(sessionValue("Charge at forecast start", in: view) == "—", "the forecast baseline must clear on external power")
+            try expect(sessionValue("Forecast start time", in: view) == "—", "the forecast time must clear on external power")
 
             view.update(model: DashboardModel(sample: current, session: session, forecastStart: nil), notice: nil, isReadingHistory: false)
             try expect(sessionValue("Charge at forecast start", in: view) == "—", "an unknown forecast baseline must display as unavailable")
+            try expect(sessionValue("Forecast start time", in: view) == "—", "an unknown forecast time must display as unavailable")
         }
     },
     TestCase(name: "AppKit clears stale forecasts when power switches to AC") {
