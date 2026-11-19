@@ -46,11 +46,11 @@ struct SessionTracker: Codable, Sendable {
     var lastSample: BatterySample?
     var historyFloor: Date?
     private(set) var forecastStart: BatterySample?
-    private var canRecoverForecast = true
+    private var forecastFloor: Date?
     private var hasContinuousObservation = false
 
     private enum CodingKeys: String, CodingKey {
-        case session, lastSample, historyFloor
+        case session, lastSample, historyFloor, forecastStart, forecastFloor
     }
 
     init(session: DischargeSession? = nil, lastSample: BatterySample? = nil, historyFloor: Date? = nil) {
@@ -63,19 +63,24 @@ struct SessionTracker: Codable, Sendable {
         hasContinuousObservation = false
     }
 
-    mutating func markWake() {
+    mutating func markWake(at date: Date) {
         markObservationGap()
         forecastStart = nil
-        canRecoverForecast = false
+        forecastFloor = max(forecastFloor ?? .distantPast, date)
     }
 
-    mutating func reconcile(history: String, current: BatterySample) {
-        reconcile(history: PowerHistory(from: history, before: current.date), current: current)
+    mutating func reconcile(history: String, current: BatterySample, bootDate: Date? = nil) {
+        reconcile(history: PowerHistory(from: history, before: current.date), current: current, bootDate: bootDate)
     }
 
-    mutating func reconcile(history: PowerHistory, current: BatterySample) {
-        update(current)
+    mutating func reconcile(history: PowerHistory, current: BatterySample, bootDate: Date? = nil) {
+        update(current, bootDate: bootDate)
         guard current.isValid, current.onBattery else { return }
+        let forecast = history.recoverForecast(
+            at: current, bootDate: bootDate, historyFloor: historyFloor, forecastFloor: forecastFloor, saved: forecastStart
+        )
+        forecastStart = forecast.start
+        forecastFloor = forecast.floor
         let records = history.samples.filter { $0.date >= (historyFloor ?? .distantPast) }
         let recovered = PowerHistory.recover(samples: records, current: current)
         var previous: BatterySample?
@@ -90,27 +95,19 @@ struct SessionTracker: Codable, Sendable {
         if let interruption {
             historyFloor = interruption
             session = recovered ?? DischargeSession(start: current, origin: .monitoring)
-            if let forecastStart, forecastStart.date < interruption {
-                self.forecastStart = recovered?.start ?? current
-            }
         } else if let recovered, session?.origin != .observed,
                   session.map({ recovered.start.date < $0.start.date }) ?? true {
             session = recovered
         }
-        guard canRecoverForecast, let wake = history.lastWake, recovered != nil, let session else { return }
-        let samplesSinceWake = history.samples.dropFirst(wake.sampleIndex).filter {
-            $0.date >= (historyFloor ?? .distantPast)
-        }
-        let start = session.start.date > wake.date ? session.start : PowerHistory.recover(samples: samplesSinceWake, current: current)?.start
-        if let start, start.percent >= current.percent {
-            forecastStart = start
-            canRecoverForecast = false
-        }
     }
 
-    mutating func update(_ sample: BatterySample) {
+    mutating func update(_ sample: BatterySample, bootDate: Date? = nil, wakeDate: Date? = nil) {
+        if let wakeDate { markWake(at: wakeDate) }
         guard sample.isValid else { return }
         if let lastSample, sample.date < lastSample.date { return }
+        if let bootDate, let forecastStart, forecastStart.date < bootDate {
+            self.forecastStart = nil
+        }
         defer {
             lastSample = sample
             hasContinuousObservation = true
@@ -119,19 +116,20 @@ struct SessionTracker: Codable, Sendable {
             session = nil
             historyFloor = sample.date
             forecastStart = nil
-            canRecoverForecast = false
             return
         }
         let increased = lastSample.map { sample.percent > $0.percent } ?? false
-        if forecastStart == nil || increased {
+        let observed = hasContinuousObservation && lastSample?.onBattery == false
+        if increased { forecastStart = nil }
+        if let wakeDate, wakeDate <= sample.date {
+            forecastStart = BatterySample(date: wakeDate, percent: sample.percent, onBattery: true)
+        } else if observed {
             forecastStart = sample
         }
         if session == nil || increased {
-            let observed = hasContinuousObservation && lastSample?.onBattery == false
             let origin: SessionOrigin = observed ? .observed : .monitoring
             if observed || (increased && hasContinuousObservation) {
                 historyFloor = sample.date
-                canRecoverForecast = false
             } else if let lastSample {
                 historyFloor = max(historyFloor ?? .distantPast, lastSample.date)
             }

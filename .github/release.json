@@ -1,6 +1,6 @@
 {
-  "version": "1.5",
+  "version": "1.6",
   "draft": false,
   "prerelease": false,
-  "notes": "Current Session now groups Discharge and Forecast details, with an elapsed time for each. The window opens at a height that fits its contents within the available screen space.\n\nRequires macOS 27 and Apple silicon. The app is ad-hoc signed and is not notarized."
+  "notes": "Battery forecasts use the latest switch to battery power, full wake, or Mac startup. Battery Run preserves the forecast start across app launches. When power history is incomplete, the app waits for an event with a usable battery reading.\n\nRequires macOS 27 and Apple silicon. The app uses ad-hoc signing."
 }

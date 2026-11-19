@@ -9,6 +9,10 @@ enum SessionStore {
             guard session.start.isValid, session.start.onBattery, last.onBattery,
                   session.start.date <= last.date, session.start.percent >= last.percent else { return nil }
         }
+        if let forecast = tracker.forecastStart {
+            guard forecast.isValid, forecast.onBattery, last.onBattery,
+                  forecast.date <= last.date, forecast.percent >= last.percent else { return nil }
+        }
         return tracker
     }
 

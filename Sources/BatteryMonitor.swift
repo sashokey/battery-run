@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import Foundation
 import IOKit.ps
 
@@ -12,6 +13,7 @@ final class BatteryMonitor: ObservableObject {
 
     let stateURL: URL
     private let readSample: () -> BatterySample?
+    private let bootDate: Date?
     private var powerSource: CFRunLoopSource?
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -23,23 +25,43 @@ final class BatteryMonitor: ObservableObject {
         URL.applicationSupportDirectory.appending(path: "BatteryRun/session.json")
     }
 
-    init(stateURL: URL = BatteryMonitor.defaultStateURL, readSample: @escaping () -> BatterySample? = { BatteryReader.read() }) {
+    init(
+        stateURL: URL = BatteryMonitor.defaultStateURL,
+        readSample: @escaping () -> BatterySample? = { BatteryReader.read() },
+        bootDate: Date? = BatteryMonitor.systemBootDate()
+    ) {
         self.stateURL = stateURL
         self.readSample = readSample
+        self.bootDate = bootDate
         tracker = SessionStore.load(from: stateURL) ?? SessionTracker()
     }
 
-    func refresh() {
+    nonisolated static func systemBootDate() -> Date? {
+        let uptime = clock_gettime_nsec_np(CLOCK_MONOTONIC)
+        let wallTime = clock_gettime_nsec_np(CLOCK_REALTIME)
+        guard uptime > 0, wallTime > uptime else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval((wallTime - uptime) / 1_000_000_000))
+    }
+
+    func refresh(wakeDate: Date? = nil) {
         guard !isSleeping else { return }
         guard let current = readSample() else {
             sample = nil
+            if let wakeDate {
+                tracker.markWake(at: wakeDate)
+                persist()
+            } else {
+                tracker.markObservationGap()
+            }
             return
         }
         let previous = tracker.lastSample
         let previousSession = tracker.session
+        let previousForecastStart = tracker.forecastStart
         sample = current
-        tracker.update(current)
-        if previous?.percent != current.percent || previous?.onBattery != current.onBattery || previousSession != tracker.session {
+        tracker.update(current, bootDate: bootDate, wakeDate: wakeDate)
+        if wakeDate != nil || previous?.percent != current.percent || previous?.onBattery != current.onBattery ||
+            previousSession != tracker.session || previousForecastStart != tracker.forecastStart {
             persist()
         }
     }
@@ -69,11 +91,11 @@ final class BatteryMonitor: ObservableObject {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
+            let wakeDate = Date()
             Task { @MainActor in
                 guard let self else { return }
                 self.isSleeping = false
-                self.tracker.markWake()
-                self.refresh()
+                self.refresh(wakeDate: wakeDate)
                 self.recoverHistory()
             }
         }
@@ -90,7 +112,7 @@ final class BatteryMonitor: ObservableObject {
             guard let self else { return }
             self.refresh()
             if !self.isSleeping, let history, let current = self.sample {
-                self.tracker.reconcile(history: history, current: current)
+                self.tracker.reconcile(history: history, current: current, bootDate: self.bootDate)
                 self.persist()
             }
             self.isReadingHistory = false

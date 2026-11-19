@@ -32,8 +32,9 @@ struct DashboardModel {
     var explanation: String {
         guard let sample else { return "Battery data is temporarily unavailable." }
         guard sample.onBattery else { return "The Mac is using external power. A new session starts when it switches to battery." }
+        guard activeForecastStart != nil else { return "Waiting for a battery reading from a switch to battery power, wake, or Mac startup." }
         if estimate == nil { return "Collecting data. An estimate needs at least 1% of charge used and 1 minute of observation." }
-        return "Based on the average drain since the last wake or switch to battery power, whichever came later."
+        return "Based on average drain since the latest switch to battery power, wake, or Mac startup."
     }
     var originNote: String? {
         switch activeSession?.origin {

@@ -6,4 +6,4 @@ Download the app ZIP from [Releases](https://github.com/sashokey/battery-run/rel
 
 ## Usage notes
 
-Estimates use the average drain since the latest wake or switch to battery power, whichever came later. An estimate appears after at least one percentage point and one minute of discharge. Historical start times are approximate. When the app cannot recover a forecast baseline from power history, it uses the first reading after launch.
+Estimates use the average drain since the latest switch to battery power, wake, or Mac startup. The app saves this starting point across launches. An estimate requires a battery reading from the event, at least one percentage point of discharge, and at least one minute of observation. A switch to battery power can be recovered from two power history readings at most one minute apart. Historical discharge start times are approximate.
