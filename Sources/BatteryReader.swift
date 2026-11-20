@@ -17,11 +17,13 @@ enum BatteryReader {
         let telemetry = powerProperties["PowerTelemetryData"] as? [String: Any] ?? [:]
         let milliwatts = number(telemetry["BatteryPower"]).map { Double($0.int64Value) }
         let input = number(telemetry["SystemPowerIn"])?.doubleValue
+        let count = number(telemetry["SystemPowerInAccumulatorCount"])?.int64Value
         let sample = BatterySample(
             date: date, percent: current / maximum * 100, onBattery: onBattery,
             isCharging: isCharging, timeToFull: timeToFull,
             batteryWatts: milliwatts.map { $0 / 1000 } ?? batteryPower(from: powerProperties),
-            inputWatts: onBattery ? nil : input.flatMap { $0 >= 0 ? $0 / 1000 : nil }
+            inputWatts: onBattery ? nil : input.flatMap { $0 >= 0 ? $0 / 1000 : nil },
+            powerSampleCount: count.flatMap(UInt64.init(exactly:))
         )
         return sample.isValid ? sample : nil
     }

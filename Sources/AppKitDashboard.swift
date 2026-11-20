@@ -33,6 +33,7 @@ final class AppKitDashboard: NSView {
     private let compact = NSStackView()
     private let batteryWatts = NSTextField(labelWithString: "")
     private let inputWatts = NSTextField(labelWithString: "")
+    private let powerStatus = NSTextField(labelWithString: "")
     private let unavailable = NSView()
     private let scroll = NSScrollView()
 
@@ -48,7 +49,7 @@ final class AppKitDashboard: NSView {
         return scroll.documentView?.bounds.height ?? 0
     }
 
-    func update(model: DashboardModel, notice: String?, isReadingHistory: Bool) {
+    func update(model: DashboardModel, notice: String?, isReadingHistory: Bool, powerRefreshMessage: String? = nil) {
         available.isHidden = model.sample == nil || model.isCompact
         compact.isHidden = !model.isCompact
         unavailable.isHidden = model.sample != nil
@@ -62,6 +63,8 @@ final class AppKitDashboard: NSView {
         }
         batteryWatts.stringValue = model.batteryPower
         inputWatts.stringValue = model.inputPower
+        powerStatus.stringValue = powerRefreshMessage ?? ""
+        powerStatus.isHidden = powerRefreshMessage == nil
         remainingLabel.stringValue = model.isCharging ? "Time to Full" : "Remaining to 0%"
         fullDurationLabel.stringValue = model.isCharging ? "0% → 100%" : "100% → 0%"
         remaining.stringValue = model.remaining
@@ -196,16 +199,28 @@ final class AppKitDashboard: NSView {
 
         compact.orientation = .vertical
         compact.alignment = .leading
-        compact.spacing = 8
+        compact.spacing = 14
         let compactStatus = NSTextField(labelWithString: "External Power")
-        compactStatus.font = .systemFont(ofSize: 12, weight: .medium)
+        compactStatus.font = .systemFont(ofSize: 16, weight: .semibold)
         compact.addArrangedSubview(compactStatus)
         let batteryLabel = NSTextField(labelWithString: "Battery")
         batteryLabel.toolTip = "Power flowing into or out of the battery."
         let inputLabel = NSTextField(labelWithString: "DC In")
         inputLabel.toolTip = "Power received from the adapter."
         let powerReadings = readingsGrid([(batteryLabel, batteryWatts), (inputLabel, inputWatts)])
+        powerReadings.rowAlignment = .none
+        powerReadings.yPlacement = .center
+        powerReadings.rowSpacing = 16
+        for label in [batteryLabel, inputLabel] {
+            label.font = .systemFont(ofSize: 14)
+        }
+        for value in [batteryWatts, inputWatts] {
+            value.font = .monospacedDigitSystemFont(ofSize: 22, weight: .semibold)
+        }
         addFullWidth(card(containing: powerReadings), to: compact)
+        powerStatus.font = .systemFont(ofSize: 12)
+        powerStatus.textColor = .secondaryLabelColor
+        addFullWidth(powerStatus, to: compact)
         addFullWidth(compact, to: root)
 
         let emptyTitle = NSTextField(labelWithString: "Battery Unavailable")

@@ -8,6 +8,7 @@ struct BatterySample: Codable, Equatable, Sendable {
     var timeToFull: TimeInterval? = nil
     var batteryWatts: Double? = nil
     var inputWatts: Double? = nil
+    var powerSampleCount: UInt64? = nil
 
     var mode: BatteryMode {
         if onBattery { return .discharging }

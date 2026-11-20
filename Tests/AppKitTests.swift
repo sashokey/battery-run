@@ -4,8 +4,13 @@ import IOKit.ps
 
 @MainActor
 func visibleText(in view: NSView) -> [String] {
+    visibleTextFields(in: view).map(\.stringValue)
+}
+
+@MainActor
+private func visibleTextFields(in view: NSView) -> [NSTextField] {
     guard !view.isHidden else { return [] }
-    return (view as? NSTextField).map { [$0.stringValue] } ?? view.subviews.flatMap { visibleText(in: $0) }
+    return (view as? NSTextField).map { [$0] } ?? view.subviews.flatMap { visibleTextFields(in: $0) }
 }
 
 let appKitTests = [
@@ -82,12 +87,76 @@ let appKitTests = [
             try expect(values.contains("Battery") && values.contains("DC In"), "compact view must show the two power channels")
             let watts = values.filter { $0.hasSuffix(" W") }.map { $0.replacingOccurrences(of: ",", with: ".") }
             try expect(watts == ["-0.48 W", "67.63 W"], "compact view must show the battery flow and measured DC input")
+            controller.dashboard.layoutSubtreeIfNeeded()
+            let fields = visibleTextFields(in: controller.dashboard)
+            let labels = fields.filter { ["Battery", "DC In"].contains($0.stringValue) }
+            let powerValues = fields.filter { $0.stringValue.hasSuffix(" W") }
+            let labelFrames = labels.map { $0.convert($0.bounds, to: controller.dashboard) }
+            let powerFrames = powerValues.map { $0.convert($0.bounds, to: controller.dashboard) }
+            for (label, value) in zip(labelFrames, powerFrames) {
+                try expect(abs(label.midY - value.midY) <= 0.5, "each power label and its value must share the center of their row")
+            }
+            try expectNear(Double(labelFrames[0].minX), Double(labelFrames[1].minX), "power labels must align on the left")
+            try expectNear(Double(powerFrames[0].maxX), Double(powerFrames[1].maxX), "power values must align on the right")
             try expect(!values.contains("Current Session") && !values.contains("63%"), "old session and charge fields must be hidden")
             try expect(compactFrame.width < expandedFrame.width && compactFrame.height < expandedFrame.height, "pause must shrink both window dimensions")
+            try expectNear(Double(compactFrame.width), 460, "the default idle window should be only modestly narrower")
+            try expect(window.contentLayoutRect.height >= 220, "the idle window needs room for the power card and refresh status")
             current = historyCurrent(62)
             controller.refreshBatteryData(nil)
             try expectNear(Double(window.frame.width), Double(expandedFrame.width), "resuming must restore expanded width")
             try expect(visibleText(in: controller.dashboard).contains("Current Session"), "resume must restore the session fields")
+
+            let screenWidth = (window.screen ?? NSScreen.main)?.visibleFrame.width ?? 620
+            if screenWidth >= 620 {
+                window.setContentSize(NSSize(width: 620, height: controller.dashboard.bounds.height))
+                current = idle
+                controller.refreshBatteryData(nil)
+                try expectNear(Double(window.frame.width), 560, "a wider user-sized window should also shrink by only 60 points")
+            }
+        }
+    },
+    TestCase(name: "the toolbar shows when manual power refresh is waiting and when macOS publishes a new sample") {
+        try MainActor.assumeIsolated {
+            let url = URL(fileURLWithPath: ".build/refresh-power-\(UUID().uuidString).json")
+            func reading(_ count: Int, input: Int = 15090) -> BatterySample? {
+                BatteryReader.sample(from: [[
+                    kIOPSTypeKey: kIOPSInternalBatteryType,
+                    kIOPSCurrentCapacityKey: 80,
+                    kIOPSMaxCapacityKey: 100,
+                    kIOPSPowerSourceStateKey: kIOPSACPowerValue,
+                    kIOPSIsChargingKey: false
+                ]], at: Date(), powerProperties: [
+                    "PowerTelemetryData": ["BatteryPower": 0, "SystemPowerIn": input, "SystemPowerInAccumulatorCount": count]
+                ])
+            }
+            var current = reading(10)
+            var reads = 0
+            let monitor = BatteryMonitor(stateURL: url, readSample: {
+                reads += 1
+                return current
+            })
+            monitor.refresh()
+            let controller = BatteryWindowController(monitor: monitor)
+            guard let item = controller.window?.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "RefreshBattery" }),
+                  let action = item.action else { throw TestFailure.failed("missing toolbar action") }
+            try expect(NSApp.sendAction(action, to: item.target, from: item), "the native toolbar must dispatch its action")
+            try expect(reads == 2, "the toolbar must request a fresh read immediately")
+            try expect(visibleText(in: controller.dashboard).contains("Waiting for a new power reading…"), "refresh needs feedback when the system returns the same snapshot")
+
+            current = reading(11)
+            monitor.refresh()
+            let deadline = Date().addingTimeInterval(1)
+            while !visibleText(in: controller.dashboard).contains("Power readings updated."), Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+            try expect(visibleText(in: controller.dashboard).contains("Power readings updated."), "new telemetry with the same watts must complete the request")
+
+            current = reading(12, input: 12010)
+            try expect(NSApp.sendAction(action, to: item.target, from: item), "the toolbar must still respond after receiving new telemetry")
+            let displayed = visibleText(in: controller.dashboard).map { $0.replacingOccurrences(of: ",", with: ".") }
+            try expect(displayed.contains("12.01 W"), "the manual action must display the latest input watts")
+            try expect(displayed.contains("Power readings updated."), "immediately available readings must complete the request")
         }
     },
     TestCase(name: "AppKit presents all measured session values in native text controls") {
