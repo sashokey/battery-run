@@ -10,6 +10,7 @@ final class BatteryMonitor: ObservableObject {
     @Published private(set) var tracker = SessionTracker()
     @Published private(set) var isReadingHistory = false
     @Published private(set) var notice: String?
+    private(set) var chargingSession: ChargingSession?
 
     let stateURL: URL
     private let readSample: () -> BatterySample?
@@ -46,7 +47,9 @@ final class BatteryMonitor: ObservableObject {
     func refresh(wakeDate: Date? = nil) {
         guard !isSleeping else { return }
         guard let current = readSample() else {
+            chargingSession = nil
             sample = nil
+            scheduleRefresh(isCompact: false)
             if let wakeDate {
                 tracker.markWake(at: wakeDate)
                 persist()
@@ -58,7 +61,14 @@ final class BatteryMonitor: ObservableObject {
         let previous = tracker.lastSample
         let previousSession = tracker.session
         let previousForecastStart = tracker.forecastStart
+        if current.mode != .charging {
+            chargingSession = nil
+        } else if chargingSession == nil || wakeDate != nil || current.percent < (sample?.percent ?? 0) {
+            let observedStart = wakeDate == nil && sample.map { $0.mode != .charging } == true
+            chargingSession = ChargingSession(start: current, observedStart: observedStart)
+        }
         sample = current
+        scheduleRefresh(isCompact: current.mode == .idle)
         tracker.update(current, bootDate: bootDate, wakeDate: wakeDate)
         if wakeDate != nil || previous?.percent != current.percent || previous?.onBattery != current.onBattery ||
             previousSession != tracker.session || previousForecastStart != tracker.forecastStart {
@@ -76,10 +86,6 @@ final class BatteryMonitor: ObservableObject {
             MainActor.assumeIsolated { monitor.refresh() }
         }, Unmanaged.passUnretained(self).toOpaque())?.takeRetainedValue()
         if let powerSource { CFRunLoopAddSource(CFRunLoopGetMain(), powerSource, .commonModes) }
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
-        timer?.tolerance = 5
         sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -100,6 +106,16 @@ final class BatteryMonitor: ObservableObject {
             }
         }
         recoverHistory()
+    }
+
+    private func scheduleRefresh(isCompact: Bool) {
+        let interval: TimeInterval = isCompact ? 5 : 30
+        guard started, timer?.timeInterval != interval else { return }
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+        timer?.tolerance = isCompact ? 1 : 5
     }
 
     func recoverHistory() {

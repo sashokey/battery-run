@@ -7,6 +7,8 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
     let monitor: BatteryMonitor
     private var observation: AnyCancellable?
     private let refreshIdentifier = NSToolbarItem.Identifier("RefreshBattery")
+    private var compact = false
+    private var expandedWidth: CGFloat = 520
 
     init(monitor: BatteryMonitor) {
         self.monitor = monitor
@@ -26,23 +28,35 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
         observation = monitor.objectWillChange.sink { [weak self] _ in
             Task { @MainActor [weak self] in self?.render() }
         }
-        render()
-        fitOpeningHeight(of: window)
+        render(opening: true)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    private func fitOpeningHeight(of window: NSWindow) {
+    private func fitWindow(_ window: NSWindow, opening: Bool) {
         let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame
-        let maximumHeight = visibleFrame.map { max(0, window.contentRect(forFrameRect: $0).height) } ?? .infinity
-        window.contentMinSize.height = min(window.contentMinSize.height, maximumHeight)
-        let requiredHeight = max(ceil(dashboard.requiredContentHeight), window.contentMinSize.height)
-        window.setContentSize(NSSize(width: dashboard.bounds.width, height: min(requiredHeight, maximumHeight)))
+        let maximum = visibleFrame.map { window.contentRect(forFrameRect: $0).size } ?? NSSize(width: CGFloat.infinity, height: CGFloat.infinity)
+        let minimum = compact ? NSSize(width: 260, height: 0) : NSSize(width: 460, height: 590)
+        let previousFrame = window.frame
+        window.contentMinSize = NSSize(width: min(minimum.width, maximum.width), height: min(minimum.height, maximum.height))
+        let width = min(compact ? 300 : expandedWidth, maximum.width)
+        window.setContentSize(NSSize(width: width, height: window.contentMinSize.height))
+        let height = max(ceil(dashboard.requiredContentHeight), window.contentMinSize.height)
+        let limitedHeight = min(height, maximum.height)
+        if compact { window.contentMinSize.height = limitedHeight }
+        window.setContentSize(NSSize(width: width, height: limitedHeight))
         if let visibleFrame {
             let size = window.frame.size
-            window.setFrameOrigin(NSPoint(x: visibleFrame.midX - size.width / 2, y: visibleFrame.midY - size.height / 2))
-        } else {
+            let x = opening ? visibleFrame.midX - size.width / 2 : previousFrame.minX
+            let y = opening ? visibleFrame.midY - size.height / 2 : previousFrame.maxY - size.height
+            window.setFrameOrigin(NSPoint(
+                x: max(visibleFrame.minX, min(x, visibleFrame.maxX - size.width)),
+                y: max(visibleFrame.minY, min(y, visibleFrame.maxY - size.height))
+            ))
+        } else if opening {
             window.center()
+        } else {
+            window.setFrameTopLeftPoint(NSPoint(x: previousFrame.minX, y: previousFrame.maxY))
         }
     }
 
@@ -71,8 +85,15 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
         return item
     }
 
-    private func render() {
-        let model = DashboardModel(sample: monitor.sample, session: monitor.tracker.session, forecastStart: monitor.tracker.forecastStart)
+    private func render(opening: Bool = false) {
+        let model = DashboardModel(
+            sample: monitor.sample, session: monitor.tracker.session,
+            forecastStart: monitor.tracker.forecastStart, chargingSession: monitor.chargingSession
+        )
         dashboard.update(model: model, notice: monitor.notice, isReadingHistory: monitor.isReadingHistory)
+        guard let window, opening || model.isCompact != compact else { return }
+        if !compact && model.isCompact { expandedWidth = dashboard.bounds.width }
+        compact = model.isCompact
+        fitWindow(window, opening: opening)
     }
 }

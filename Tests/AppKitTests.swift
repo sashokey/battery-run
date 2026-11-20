@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import IOKit.ps
 
 @MainActor
 func visibleText(in view: NSView) -> [String] {
@@ -8,6 +9,87 @@ func visibleText(in view: NSView) -> [String] {
 }
 
 let appKitTests = [
+    TestCase(name: "AppKit uses the same estimate positions for charging and displays its uncertainty") {
+        try MainActor.assumeIsolated {
+            let date = Date(timeIntervalSince1970: 1704110400)
+            func reading(_ percent: Int, date: Date, charging: Bool, minutes: Int = 30) -> BatterySample? {
+                BatteryReader.sample(from: [[
+                    kIOPSTypeKey: kIOPSInternalBatteryType,
+                    kIOPSCurrentCapacityKey: percent,
+                    kIOPSMaxCapacityKey: 100,
+                    kIOPSPowerSourceStateKey: kIOPSACPowerValue,
+                    kIOPSIsChargingKey: charging,
+                    kIOPSTimeToFullChargeKey: minutes
+                ]], at: date)
+            }
+            let url = URL(fileURLWithPath: ".build/charging-window-\(UUID().uuidString).json")
+            var current = reading(60, date: date, charging: false)
+            let monitor = BatteryMonitor(stateURL: url, readSample: { current })
+            let controller = BatteryWindowController(monitor: monitor)
+            controller.refreshBatteryData(nil)
+
+            current = reading(60, date: date.addingTimeInterval(30), charging: true)
+            controller.refreshBatteryData(nil)
+            let waiting = visibleText(in: controller.dashboard)
+            try expect(waiting.contains("30m"), "the system ETA should appear before enough charge has been measured")
+            try expect(!waiting.contains { $0.hasPrefix("≈") }, "no full-charge prediction before a measured rate")
+
+            current = reading(70, date: date.addingTimeInterval(3630), charging: true)
+            controller.refreshBatteryData(nil)
+            let values = visibleText(in: controller.dashboard)
+            let titles = values.filter { ["Time to Full", "0% → 100%"].contains($0) }
+            try expect(titles == ["Time to Full", "0% → 100%"], "live ETA and full-range estimate must keep their order")
+            for expected in ["Charging", "Charge added", "10%", "30m", "≈ 7h 30m", "Based on the measured rate and macOS estimate."] {
+                try expect(values.contains(expected), "charging must display \(expected)")
+            }
+
+            current = reading(70, date: date.addingTimeInterval(3630), charging: true, minutes: -1)
+            controller.refreshBatteryData(nil)
+            let measuredOnly = visibleText(in: controller.dashboard)
+            try expect(measuredOnly.contains("≈ 10h 0m"), "measured rate should still give a full-range estimate without a system ETA")
+            try expect(measuredOnly.contains("Based on the measured charging rate."), "the note must identify the calculation being used")
+
+            current = reading(70, date: date.addingTimeInterval(3690), charging: false)
+            controller.refreshBatteryData(nil)
+            current = reading(70, date: date.addingTimeInterval(3750), charging: true)
+            controller.refreshBatteryData(nil)
+            let resumed = visibleText(in: controller.dashboard)
+            try expect(!resumed.contains { $0.hasPrefix("≈") }, "a new charging session must not reuse the old rate")
+        }
+    },
+    TestCase(name: "AppKit compacts to battery and input watts when charging pauses") {
+        try MainActor.assumeIsolated {
+            let url = URL(fileURLWithPath: ".build/power-window-\(UUID().uuidString).json")
+            var current = historyCurrent(63)
+            let monitor = BatteryMonitor(stateURL: url, readSample: { current })
+            let controller = BatteryWindowController(monitor: monitor)
+            controller.refreshBatteryData(nil)
+            guard let window = controller.window else { throw TestFailure.failed("missing window") }
+            let expandedFrame = window.frame
+            guard let idle = BatteryReader.sample(from: [[
+                kIOPSTypeKey: kIOPSInternalBatteryType,
+                kIOPSCurrentCapacityKey: 63,
+                kIOPSMaxCapacityKey: 100,
+                kIOPSPowerSourceStateKey: kIOPSACPowerValue,
+                kIOPSIsChargingKey: false
+            ]], at: current.date, powerProperties: [
+                "PowerTelemetryData": ["BatteryPower": -480, "SystemPowerIn": 67630]
+            ]) else { throw TestFailure.failed("missing idle reading") }
+            current = idle
+            controller.refreshBatteryData(nil)
+            let compactFrame = window.frame
+            let values = visibleText(in: controller.dashboard)
+            try expect(values.contains("Battery") && values.contains("DC In"), "compact view must show the two power channels")
+            let watts = values.filter { $0.hasSuffix(" W") }.map { $0.replacingOccurrences(of: ",", with: ".") }
+            try expect(watts == ["-0.48 W", "67.63 W"], "compact view must show the battery flow and measured DC input")
+            try expect(!values.contains("Current Session") && !values.contains("63%"), "old session and charge fields must be hidden")
+            try expect(compactFrame.width < expandedFrame.width && compactFrame.height < expandedFrame.height, "pause must shrink both window dimensions")
+            current = historyCurrent(62)
+            controller.refreshBatteryData(nil)
+            try expectNear(Double(window.frame.width), Double(expandedFrame.width), "resuming must restore expanded width")
+            try expect(visibleText(in: controller.dashboard).contains("Current Session"), "resume must restore the session fields")
+        }
+    },
     TestCase(name: "AppKit presents all measured session values in native text controls") {
         try MainActor.assumeIsolated {
             let view = AppKitDashboard(frame: NSRect(x: 0, y: 0, width: 520, height: 650))
@@ -65,9 +147,9 @@ let appKitTests = [
             try expect(sections["Forecast"] == ["Forecast start time", "Charge at forecast start", "Forecast elapsed", "Average drain"], "the forecast group must contain its own four rows in order")
 
             view.update(model: DashboardModel(sample: historyCurrent(70, onBattery: false), session: session, forecastStart: wake), notice: nil, isReadingHistory: false)
-            try expect(sessionValue("Charge at forecast start", in: view) == "—", "the forecast baseline must clear on external power")
-            try expect(sessionValue("Forecast start time", in: view) == "—", "the forecast time must clear on external power")
-            try expect(sessionValue("Forecast elapsed", in: view) == "—", "the forecast duration must clear on external power")
+            let idle = visibleText(in: view)
+            try expect(!idle.contains("Forecast"), "external power without charging must hide the forecast section")
+            try expect(!idle.contains("Current Session"), "external power without charging must hide the session")
 
             view.update(model: DashboardModel(sample: current, session: session, forecastStart: nil), notice: nil, isReadingHistory: false)
             try expect(sessionValue("Charge at forecast start", in: view) == "—", "an unknown forecast baseline must display as unavailable")
@@ -110,7 +192,7 @@ let appKitTests = [
     TestCase(name: "AppKit window refresh binds live battery data to the dashboard") {
         try MainActor.assumeIsolated {
             let url = URL(fileURLWithPath: ".build/window-\(UUID().uuidString).json")
-            let reading = historyCurrent(71, onBattery: false)
+            let reading = historyCurrent(71)
             let monitor = BatteryMonitor(stateURL: url, readSample: { reading })
             let controller = BatteryWindowController(monitor: monitor)
             controller.refreshBatteryData(nil)

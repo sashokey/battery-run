@@ -6,9 +6,16 @@ final class AppKitDashboard: NSView {
     private let source = NSTextField(labelWithString: "")
     private let batteryImage = NSImageView()
     private let chargeBar = NSProgressIndicator()
+    private let remainingLabel = NSTextField(labelWithString: "Remaining to 0%")
+    private let fullDurationLabel = NSTextField(labelWithString: "100% → 0%")
     private let remaining = NSTextField(labelWithString: "—")
     private let fullDuration = NSTextField(labelWithString: "—")
+    private let fullChargingNote = NSTextField(wrappingLabelWithString: "")
+    private let sessionHeading = NSTextField(labelWithString: "Discharge")
     private let startLabel = NSTextField(labelWithString: "Discharge started")
+    private let elapsedLabel = NSTextField(labelWithString: "Discharge elapsed")
+    private let usedLabel = NSTextField(labelWithString: "Charge used")
+    private let rateLabel = NSTextField(labelWithString: "Average drain")
     private let startValue = NSTextField(labelWithString: "—")
     private let startCharge = NSTextField(labelWithString: "—")
     private let forecastStartCharge = NSTextField(labelWithString: "—")
@@ -23,6 +30,9 @@ final class AppKitDashboard: NSView {
     private let progress = NSProgressIndicator()
     private let progressRow = NSStackView()
     private let available = NSStackView()
+    private let compact = NSStackView()
+    private let batteryWatts = NSTextField(labelWithString: "")
+    private let inputWatts = NSTextField(labelWithString: "")
     private let unavailable = NSView()
     private let scroll = NSScrollView()
 
@@ -39,19 +49,31 @@ final class AppKitDashboard: NSView {
     }
 
     func update(model: DashboardModel, notice: String?, isReadingHistory: Bool) {
-        available.isHidden = model.sample == nil
+        available.isHidden = model.sample == nil || model.isCompact
+        compact.isHidden = !model.isCompact
         unavailable.isHidden = model.sample != nil
-        if let sample = model.sample {
+        if let sample = model.sample, !model.isCompact {
             charge.stringValue = DashboardModel.percent(sample.percent)
-            source.stringValue = sample.onBattery ? "On Battery" : "External Power"
+            source.stringValue = model.isCharging ? "Charging" : "On Battery"
             chargeBar.doubleValue = sample.percent
             let level = Int((sample.percent / 25).rounded()) * 25
             let symbol = sample.onBattery ? "battery.\(level)percent" : "battery.100percent.bolt"
             batteryImage.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         }
+        batteryWatts.stringValue = model.batteryPower
+        inputWatts.stringValue = model.inputPower
+        remainingLabel.stringValue = model.isCharging ? "Time to Full" : "Remaining to 0%"
+        fullDurationLabel.stringValue = model.isCharging ? "0% → 100%" : "100% → 0%"
         remaining.stringValue = model.remaining
         fullDuration.stringValue = model.fullDuration
+        let chargingNote = model.fullChargingNote
+        fullChargingNote.stringValue = chargingNote ?? ""
+        fullChargingNote.isHidden = chargingNote == nil
+        sessionHeading.stringValue = model.isCharging ? "Charging" : "Discharge"
         startLabel.stringValue = model.startLabel
+        elapsedLabel.stringValue = model.isCharging ? "Charging elapsed" : "Discharge elapsed"
+        usedLabel.stringValue = model.isCharging ? "Charge added" : "Charge used"
+        rateLabel.stringValue = model.isCharging ? "Average charge rate" : "Average drain"
         startValue.stringValue = model.startValue
         startCharge.stringValue = model.startCharge
         forecastStartCharge.stringValue = model.forecastStartCharge
@@ -60,13 +82,16 @@ final class AppKitDashboard: NSView {
         forecastElapsed.stringValue = model.forecastElapsed
         used.stringValue = model.chargeUsed
         rate.stringValue = model.rate
-        explanation.stringValue = model.explanation
+        let explanationText = model.explanation
+        explanation.stringValue = explanationText
+        explanation.isHidden = explanationText.isEmpty
         originNote.stringValue = model.originNote ?? ""
         originNote.isHidden = model.originNote == nil
         storageNotice.stringValue = notice ?? ""
         storageNotice.isHidden = notice == nil
-        progressRow.isHidden = !isReadingHistory
-        if isReadingHistory { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
+        let showHistoryProgress = isReadingHistory && model.mode == .discharging
+        progressRow.isHidden = !showHistoryProgress
+        if showHistoryProgress { progress.startAnimation(nil) } else { progress.stopAnimation(nil) }
         needsLayout = true
     }
 
@@ -119,7 +144,12 @@ final class AppKitDashboard: NSView {
         chargeBar.setAccessibilityLabel("Battery charge")
         addFullWidth(chargeBar, to: available)
 
-        let estimates = NSStackView(views: [estimateColumn("Remaining to 0%", value: remaining), estimateColumn("100% → 0%", value: fullDuration)])
+        let fullColumn = estimateColumn(fullDurationLabel, value: fullDuration)
+        fullChargingNote.font = .systemFont(ofSize: 11)
+        fullChargingNote.textColor = .secondaryLabelColor
+        fullChargingNote.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addFullWidth(fullChargingNote, to: fullColumn)
+        let estimates = NSStackView(views: [estimateColumn(remainingLabel, value: remaining), fullColumn])
         estimates.distribution = .fillEqually
         estimates.spacing = 24
         estimates.alignment = .top
@@ -128,19 +158,19 @@ final class AppKitDashboard: NSView {
         let sessionTitle = NSTextField(labelWithString: "Current Session")
         sessionTitle.font = .systemFont(ofSize: 12, weight: .medium)
         let details = verticalStack(spacing: 16)
-        let discharge = sessionSection("Discharge", rows: [
+        let sessionReadings = sessionSection(sessionHeading, rows: [
             (startLabel, startValue),
             (NSTextField(labelWithString: "Starting charge"), startCharge),
-            (NSTextField(labelWithString: "Discharge elapsed"), elapsed),
-            (NSTextField(labelWithString: "Charge used"), used)
+            (elapsedLabel, elapsed),
+            (usedLabel, used)
         ])
-        let forecast = sessionSection("Forecast", rows: [
+        let forecast = sessionSection(NSTextField(labelWithString: "Forecast"), rows: [
             (NSTextField(labelWithString: "Forecast start time"), forecastStartTime),
             (NSTextField(labelWithString: "Charge at forecast start"), forecastStartCharge),
             (NSTextField(labelWithString: "Forecast elapsed"), forecastElapsed),
-            (NSTextField(labelWithString: "Average drain"), rate)
+            (rateLabel, rate)
         ])
-        addFullWidth(discharge, to: details)
+        addFullWidth(sessionReadings, to: details)
         addFullWidth(forecast, to: details)
         let session = verticalStack(spacing: 8, views: [sessionTitle])
         addFullWidth(card(containing: details), to: session)
@@ -164,6 +194,20 @@ final class AppKitDashboard: NSView {
         progressRow.spacing = 8
         available.addArrangedSubview(progressRow)
 
+        compact.orientation = .vertical
+        compact.alignment = .leading
+        compact.spacing = 8
+        let compactStatus = NSTextField(labelWithString: "External Power")
+        compactStatus.font = .systemFont(ofSize: 12, weight: .medium)
+        compact.addArrangedSubview(compactStatus)
+        let batteryLabel = NSTextField(labelWithString: "Battery")
+        batteryLabel.toolTip = "Power flowing into or out of the battery."
+        let inputLabel = NSTextField(labelWithString: "DC In")
+        inputLabel.toolTip = "Power received from the adapter."
+        let powerReadings = readingsGrid([(batteryLabel, batteryWatts), (inputLabel, inputWatts)])
+        addFullWidth(card(containing: powerReadings), to: compact)
+        addFullWidth(compact, to: root)
+
         let emptyTitle = NSTextField(labelWithString: "Battery Unavailable")
         emptyTitle.font = .systemFont(ofSize: 20, weight: .semibold)
         let emptyText = NSTextField(wrappingLabelWithString: "No readable internal battery was found. Try refreshing the battery data.")
@@ -184,9 +228,14 @@ final class AppKitDashboard: NSView {
         update(model: DashboardModel(sample: nil, session: nil, forecastStart: nil), notice: nil, isReadingHistory: false)
     }
 
-    private func sessionSection(_ title: String, rows: [(label: NSTextField, value: NSTextField)]) -> NSStackView {
-        let heading = NSTextField(labelWithString: title)
+    private func sessionSection(_ heading: NSTextField, rows: [(label: NSTextField, value: NSTextField)]) -> NSStackView {
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
+        let section = verticalStack(spacing: 8, views: [heading])
+        addFullWidth(readingsGrid(rows), to: section)
+        return section
+    }
+
+    private func readingsGrid(_ rows: [(label: NSTextField, value: NSTextField)]) -> NSGridView {
         let grid = NSGridView(views: rows.map { [$0.label, $0.value] })
         grid.rowSpacing = 14
         grid.columnSpacing = 24
@@ -197,13 +246,10 @@ final class AppKitDashboard: NSView {
             value.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
             value.isSelectable = true
         }
-        let section = verticalStack(spacing: 8, views: [heading])
-        addFullWidth(grid, to: section)
-        return section
+        return grid
     }
 
-    private func estimateColumn(_ title: String, value: NSTextField) -> NSView {
-        let label = NSTextField(labelWithString: title)
+    private func estimateColumn(_ label: NSTextField, value: NSTextField) -> NSStackView {
         label.font = .systemFont(ofSize: 12)
         label.textColor = .secondaryLabelColor
         value.font = .monospacedDigitSystemFont(ofSize: 22, weight: .semibold)

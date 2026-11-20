@@ -4,10 +4,25 @@ struct BatterySample: Codable, Equatable, Sendable {
     let date: Date
     let percent: Double
     let onBattery: Bool
+    var isCharging: Bool? = nil
+    var timeToFull: TimeInterval? = nil
+    var batteryWatts: Double? = nil
+    var inputWatts: Double? = nil
+
+    var mode: BatteryMode {
+        if onBattery { return .discharging }
+        return isCharging == true ? .charging : .idle
+    }
 
     var isValid: Bool {
         percent.isFinite && (0...100).contains(percent) && date.timeIntervalSince1970.isFinite
     }
+}
+
+enum BatteryMode {
+    case discharging
+    case charging
+    case idle
 }
 
 enum SessionOrigin: String, Codable, Sendable {
