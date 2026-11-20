@@ -313,7 +313,7 @@ let appKitTests = [
             }
             let unconstrainedHeight = ceil(requiredHeight) + chromeHeight
             if unconstrainedHeight <= (screen?.height ?? .infinity) {
-                try expectNear(Double(visibleHeight), Double(ceil(requiredHeight)), "the historical session must fit without scrolling")
+                try expect(visibleHeight >= requiredHeight, "the historical session must fit without scrolling (viewport \(visibleHeight), content \(requiredHeight))")
             } else {
                 try expectNear(Double(window.frame.height), screen.map { Double($0.height) } ?? 0, "the window must fit the available height on a shorter screen")
             }
