@@ -1,8 +1,16 @@
 import Foundation
 import IOKit.ps
 
+struct PowerWatts: Sendable {
+    let battery: Double?
+    let input: Double?
+}
+
 enum BatteryReader {
-    static func sample(from descriptions: [[String: Any]], at date: Date, powerProperties: [String: Any] = [:]) -> BatterySample? {
+    static func sample(
+        from descriptions: [[String: Any]], at date: Date, powerProperties: [String: Any] = [:],
+        readLivePower: () -> PowerWatts? = { nil }
+    ) -> BatterySample? {
         guard let battery = descriptions.first(where: { $0[kIOPSTypeKey] as? String == kIOPSInternalBatteryType }),
               battery[kIOPSIsPresentKey] as? Bool != false,
               let current = (battery[kIOPSCurrentCapacityKey] as? NSNumber)?.doubleValue,
@@ -18,12 +26,23 @@ enum BatteryReader {
         let milliwatts = number(telemetry["BatteryPower"]).map { Double($0.int64Value) }
         let input = number(telemetry["SystemPowerIn"])?.doubleValue
         let count = number(telemetry["SystemPowerInAccumulatorCount"])?.int64Value
+        let live = !onBattery && !isCharging ? readLivePower() : nil
+        let liveBattery = live?.battery.flatMap { $0.isFinite ? $0 : nil }
+        let liveInput = live?.input.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        let powerReadingSource: PowerReadingSource? = switch (liveBattery, liveInput) {
+        case (_?, _?): .direct
+        case (_?, nil), (nil, _?): .partial
+        case (nil, nil): nil
+        }
+        let cachedBattery = milliwatts.map { $0 / 1000 } ?? batteryPower(from: powerProperties)
+        let cachedInput = input.flatMap { $0 >= 0 ? $0 / 1000 : nil }
         let sample = BatterySample(
             date: date, percent: current / maximum * 100, onBattery: onBattery,
             isCharging: isCharging, timeToFull: timeToFull,
-            batteryWatts: milliwatts.map { $0 / 1000 } ?? batteryPower(from: powerProperties),
-            inputWatts: onBattery ? nil : input.flatMap { $0 >= 0 ? $0 / 1000 : nil },
-            powerSampleCount: count.flatMap(UInt64.init(exactly:))
+            batteryWatts: liveBattery ?? cachedBattery,
+            inputWatts: onBattery ? nil : liveInput ?? cachedInput,
+            powerSampleCount: count.flatMap(UInt64.init(exactly:)),
+            powerReadingSource: powerReadingSource
         )
         return sample.isValid ? sample : nil
     }
@@ -34,7 +53,7 @@ enum BatteryReader {
         let descriptions = sources.compactMap {
             IOPSGetPowerSourceDescription(info, $0)?.takeUnretainedValue() as? [String: Any]
         }
-        return sample(from: descriptions, at: date, powerProperties: readPowerProperties())
+        return sample(from: descriptions, at: date, powerProperties: readPowerProperties(), readLivePower: SMCPowerReader.read)
     }
 
     private static func readPowerProperties() -> [String: Any] {

@@ -1,5 +1,10 @@
 import Foundation
 
+enum PowerReadingSource: String, Codable, Sendable {
+    case direct
+    case partial
+}
+
 struct BatterySample: Codable, Equatable, Sendable {
     let date: Date
     let percent: Double
@@ -9,6 +14,7 @@ struct BatterySample: Codable, Equatable, Sendable {
     var batteryWatts: Double? = nil
     var inputWatts: Double? = nil
     var powerSampleCount: UInt64? = nil
+    var powerReadingSource: PowerReadingSource? = nil
 
     var mode: BatteryMode {
         if onBattery { return .discharging }

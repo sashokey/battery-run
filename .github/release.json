@@ -1,6 +1,6 @@
 {
-  "version": "1.8",
+  "version": "1.9",
   "draft": false,
   "prerelease": false,
-  "notes": "- Refresh Battery Data now waits for a new macOS power sample and reports whether readings updated or stayed unchanged.\n- The compact power window is wider, with larger Battery and DC In values aligned with their labels.\n\nRequires macOS 27 and Apple silicon. The app uses ad-hoc signing."
+  "notes": "- The compact power window reads Battery and DC In directly from the Mac’s power sensors. Refresh Battery Data displays the result immediately.\n- If a sensor is unavailable, its reading falls back to the latest data macOS provides. App Sandbox is enabled with an AppleSMCClient exception.\n\nRequires macOS 27 and Apple silicon. The app uses ad-hoc signing."
 }

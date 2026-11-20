@@ -44,6 +44,7 @@ checks = [
     ("Signature=adhoc" in signature, "Expected an ad-hoc signature"),
     (entitlements.get("com.apple.security.app-sandbox") is True and entitlements == {
         "com.apple.security.app-sandbox": True,
+        "com.apple.security.temporary-exception.iokit-user-client-class": ["AppleSMCClient"],
         "com.apple.security.temporary-exception.files.absolute-path.read-only": ["/private/var/log/powermanagement/"],
     }, "Unexpected signed entitlements"),
 ]

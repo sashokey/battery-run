@@ -116,10 +116,10 @@ let appKitTests = [
             }
         }
     },
-    TestCase(name: "the toolbar shows when manual power refresh is waiting and when macOS publishes a new sample") {
+    TestCase(name: "manual power refresh finishes and dismisses its result without a later poll") {
         try MainActor.assumeIsolated {
             let url = URL(fileURLWithPath: ".build/refresh-power-\(UUID().uuidString).json")
-            func reading(_ count: Int, input: Int = 15090) -> BatterySample? {
+            func reading(_ count: Int, input: Int = 15090, live: PowerWatts? = nil) -> BatterySample? {
                 BatteryReader.sample(from: [[
                     kIOPSTypeKey: kIOPSInternalBatteryType,
                     kIOPSCurrentCapacityKey: 80,
@@ -128,7 +128,7 @@ let appKitTests = [
                     kIOPSIsChargingKey: false
                 ]], at: Date(), powerProperties: [
                     "PowerTelemetryData": ["BatteryPower": 0, "SystemPowerIn": input, "SystemPowerInAccumulatorCount": count]
-                ])
+                ], readLivePower: { live })
             }
             var current = reading(10)
             var reads = 0
@@ -142,21 +142,33 @@ let appKitTests = [
                   let action = item.action else { throw TestFailure.failed("missing toolbar action") }
             try expect(NSApp.sendAction(action, to: item.target, from: item), "the native toolbar must dispatch its action")
             try expect(reads == 2, "the toolbar must request a fresh read immediately")
-            try expect(visibleText(in: controller.dashboard).contains("Waiting for a new power reading…"), "refresh needs feedback when the system returns the same snapshot")
+            let unchanged = "No new power reading."
+            try expect(visibleText(in: controller.dashboard).contains(unchanged), "an unchanged system snapshot must finish refresh immediately")
 
-            current = reading(11)
-            monitor.refresh()
-            let deadline = Date().addingTimeInterval(1)
-            while !visibleText(in: controller.dashboard).contains("Power readings updated."), Date() < deadline {
+            let dismissalDeadline = ContinuousClock.now + .seconds(5)
+            while visibleText(in: controller.dashboard).contains(unchanged), ContinuousClock.now < dismissalDeadline {
                 RunLoop.main.run(until: Date().addingTimeInterval(0.01))
             }
-            try expect(visibleText(in: controller.dashboard).contains("Power readings updated."), "new telemetry with the same watts must complete the request")
+            try expect(!visibleText(in: controller.dashboard).contains(unchanged), "the result must clear even when no further battery read occurs")
+            try expect(reads == 2, "dismissing the result must not require a battery read")
 
+            current = reading(11)
+            try expect(NSApp.sendAction(action, to: item.target, from: item), "the toolbar must read again")
+            try expect(visibleText(in: controller.dashboard).contains("Power readings updated."), "a new sample may have the same wattage")
             current = reading(12, input: 12010)
             try expect(NSApp.sendAction(action, to: item.target, from: item), "the toolbar must still respond after receiving new telemetry")
             let displayed = visibleText(in: controller.dashboard).map { $0.replacingOccurrences(of: ",", with: ".") }
             try expect(displayed.contains("12.01 W"), "the manual action must display the latest input watts")
             try expect(displayed.contains("Power readings updated."), "immediately available readings must complete the request")
+
+            current = reading(13, live: PowerWatts(battery: 0.47, input: 12.01))
+            try expect(NSApp.sendAction(action, to: item.target, from: item), "refresh must read the direct sensors")
+            current = reading(13)
+            try expect(NSApp.sendAction(action, to: item.target, from: item), "refresh must survive loss of direct readings")
+            try expect(visibleText(in: controller.dashboard).contains("Showing cached power readings."), "a return to an older cached sample is not a fresh reading")
+            current = reading(13, live: PowerWatts(battery: 0, input: nil))
+            try expect(NSApp.sendAction(action, to: item.target, from: item), "refresh must keep a partial direct sample")
+            try expect(visibleText(in: controller.dashboard).contains("One live power reading available."), "a partial direct read still observes one live sensor")
         }
     },
     TestCase(name: "AppKit presents all measured session values in native text controls") {

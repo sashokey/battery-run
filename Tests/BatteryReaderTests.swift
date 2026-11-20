@@ -51,6 +51,27 @@ let batteryReaderTests = [
         try expectNear(sample?.batteryWatts, -0.48, "signed current and millivolts must convert to watts")
         try expect(sample?.inputWatts == nil, "missing measured input must be unavailable")
     },
+    TestCase(name: "idle power prefers the direct channels and falls back independently") {
+        let battery: [String: Any] = [
+            kIOPSTypeKey: kIOPSInternalBatteryType, kIOPSCurrentCapacityKey: 80,
+            kIOPSMaxCapacityKey: 100, kIOPSPowerSourceStateKey: kIOPSACPowerValue,
+            kIOPSIsChargingKey: false
+        ]
+        let properties = ["PowerTelemetryData": ["BatteryPower": 100, "SystemPowerIn": 15250]]
+        let live = BatteryReader.sample(from: [battery], at: Date(), powerProperties: properties, readLivePower: {
+            PowerWatts(battery: 0.47, input: 12.01)
+        })
+        try expectNear(live?.batteryWatts, 0.47, "fresh Battery watts must take precedence over the cached value")
+        try expectNear(live?.inputWatts, 12.01, "fresh DC In watts must take precedence over the cached value")
+        try expect(live?.powerReadingSource == .direct, "success requires both channels to be read directly")
+
+        let partial = BatteryReader.sample(from: [battery], at: Date(), powerProperties: properties, readLivePower: {
+            PowerWatts(battery: 0, input: .nan)
+        })
+        try expectNear(partial?.batteryWatts, 0, "a fresh measured zero must be kept")
+        try expectNear(partial?.inputWatts, 15.25, "an invalid direct reading must fall back for that channel only")
+        try expect(partial?.powerReadingSource == .partial, "a cached channel must not be marked as a direct reading")
+    },
     TestCase(name: "one measured percentage point is enough to estimate the charge rate") {
         let date = Date(timeIntervalSince1970: 1000)
         func reading(_ capacity: Int, at date: Date) -> BatterySample? {

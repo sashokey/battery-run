@@ -9,12 +9,8 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
     private let refreshIdentifier = NSToolbarItem.Identifier("RefreshBattery")
     private var compact = false
     private var expandedWidth: CGFloat = 520
-    private var powerRefresh: PowerRefresh?
-
-    private enum PowerRefresh {
-        case waiting(previous: BatterySample?, until: ContinuousClock.Instant)
-        case finished(message: String, until: ContinuousClock.Instant)
-    }
+    private var refreshResult: String?
+    private var dismissRefreshResult: Task<Void, Never>?
 
     init(monitor: BatteryMonitor) {
         self.monitor = monitor
@@ -70,12 +66,7 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
     @objc func refreshBatteryData(_ sender: Any?) {
         let previous = monitor.sample
         monitor.refresh()
-        if monitor.sample?.mode == .idle {
-            powerRefresh = .waiting(
-                previous: previous?.mode == .idle ? previous : nil,
-                until: ContinuousClock.now + .seconds(25)
-            )
-        }
+        setRefreshResult(powerRefreshMessage(after: previous))
         render()
         monitor.recoverHistory()
     }
@@ -104,9 +95,10 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
             sample: monitor.sample, session: monitor.tracker.session,
             forecastStart: monitor.tracker.forecastStart, chargingSession: monitor.chargingSession
         )
+        if !model.isCompact && refreshResult != nil { setRefreshResult(nil) }
         dashboard.update(
             model: model, notice: monitor.notice, isReadingHistory: monitor.isReadingHistory,
-            powerRefreshMessage: powerRefreshMessage(for: model.sample)
+            powerRefreshMessage: refreshResult
         )
         guard let window, opening || model.isCompact != compact else { return }
         if !compact && model.isCompact { expandedWidth = dashboard.bounds.width }
@@ -114,32 +106,34 @@ final class BatteryWindowController: NSWindowController, NSToolbarDelegate {
         fitWindow(window, opening: opening)
     }
 
-    private func powerRefreshMessage(for sample: BatterySample?) -> String? {
-        guard let sample, sample.mode == .idle else {
-            powerRefresh = nil
-            return nil
+    private func powerRefreshMessage(after previous: BatterySample?) -> String? {
+        guard let sample = monitor.sample, sample.mode == .idle else { return nil }
+        guard sample.batteryWatts != nil || sample.inputWatts != nil else { return "Power readings unavailable." }
+        if sample.powerReadingSource == .direct { return "Power readings updated." }
+        if sample.powerReadingSource == .partial { return "One live power reading available." }
+        if previous?.powerReadingSource != nil { return "Showing cached power readings." }
+        let counterChanged = sample.powerSampleCount.map { $0 != previous?.powerSampleCount } == true
+        if counterChanged || sample.batteryWatts != previous?.batteryWatts || sample.inputWatts != previous?.inputWatts {
+            return "Power readings updated."
         }
-        let now = ContinuousClock.now
-        switch powerRefresh {
-        case let .waiting(previous, until):
-            let message: String
-            if sample.batteryWatts == nil && sample.inputWatts == nil {
-                message = "Power readings unavailable."
-            } else if previous?.powerSampleCount != sample.powerSampleCount ||
-                        previous?.batteryWatts != sample.batteryWatts || previous?.inputWatts != sample.inputWatts {
-                message = "Power readings updated."
-            } else if now < until {
-                return "Waiting for a new power reading…"
-            } else {
-                message = "Power readings unchanged."
+        return "No new power reading."
+    }
+
+    private func setRefreshResult(_ message: String?) {
+        dismissRefreshResult?.cancel()
+        dismissRefreshResult = nil
+        refreshResult = message
+        guard message != nil else { return }
+        dismissRefreshResult = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
             }
-            powerRefresh = .finished(message: message, until: now + .seconds(5))
-            return message
-        case let .finished(message, until) where now < until:
-            return message
-        default:
-            powerRefresh = nil
-            return nil
+            guard !Task.isCancelled else { return }
+            self?.refreshResult = nil
+            self?.dismissRefreshResult = nil
+            self?.render()
         }
     }
 }
